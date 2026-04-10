@@ -71,7 +71,8 @@ app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
 
   try {
-    await bot.telegram.setWebhook(`${BASE_URL}${WEBHOOK_PATH}`);
+    const cleanBaseUrl = BASE_URL.replace(/\/+$/, ""); 
+    await bot.telegram.setWebhook(`${cleanBaseUrl}${WEBHOOK_PATH}`);
     console.log("Webhook set:", `${BASE_URL}${WEBHOOK_PATH}`);
   } catch (e) {
     console.error("Webhook setup failed:", e.message);
