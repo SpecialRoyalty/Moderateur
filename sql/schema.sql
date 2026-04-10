@@ -1,4 +1,4 @@
-CREATE TABLE settings (
+CREATE TABLE IF NOT EXISTS settings (
     id SERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL UNIQUE,
     auto_message TEXT,
@@ -8,7 +8,7 @@ CREATE TABLE settings (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE admin_users (
+CREATE TABLE IF NOT EXISTS admin_users (
     id SERIAL PRIMARY KEY,
     telegram_user_id BIGINT NOT NULL UNIQUE,
     username VARCHAR(255),
@@ -16,7 +16,7 @@ CREATE TABLE admin_users (
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE forbidden_words (
+CREATE TABLE IF NOT EXISTS forbidden_words (
     id SERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL,
     word VARCHAR(255) NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE forbidden_words (
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE member_offenses (
+CREATE TABLE IF NOT EXISTS member_offenses (
     id SERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
@@ -34,10 +34,14 @@ CREATE TABLE member_offenses (
     UNIQUE(group_id, user_id, offense_type)
 );
 
-CREATE TABLE broadcast_logs (
+CREATE TABLE IF NOT EXISTS broadcast_logs (
     id SERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL,
     admin_user_id BIGINT NOT NULL,
     message TEXT NOT NULL,
     sent_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+INSERT INTO settings (group_id, auto_message, auto_message_enabled, auto_message_interval_minutes)
+VALUES (-1001234567890, 'Partagez vos vidéos', false, 30)
+ON CONFLICT (group_id) DO NOTHING;
