@@ -50,7 +50,9 @@ async function containsForbiddenWord(groupId, text) {
   const rows = await getForbiddenWords(groupId);
   const normalized = String(text).toLowerCase();
 
-  return rows.some((row) => normalized.includes(String(row.word).toLowerCase()));
+  return rows.some((row) =>
+    normalized.includes(String(row.word).toLowerCase())
+  );
 }
 
 async function deleteMessageSilently(ctx) {
@@ -136,7 +138,13 @@ async function deleteForbiddenWord(groupId, word) {
 
 async function setAutoMessage(groupId, enabled, message, intervalMinutes = 30) {
   await pool.query(
-    `INSERT INTO settings (group_id, auto_message, auto_message_enabled, auto_message_interval_minutes, updated_at)
+    `INSERT INTO settings (
+      group_id,
+      auto_message,
+      auto_message_enabled,
+      auto_message_interval_minutes,
+      updated_at
+    )
      VALUES ($1, $2, $3, $4, NOW())
      ON CONFLICT (group_id)
      DO UPDATE SET
@@ -170,6 +178,65 @@ async function sendBroadcast(adminUserId, message) {
   );
 }
 
+/* =========================
+   REGLE MEDIA AVANT TEXTE
+========================= */
+
+async function hasUserSentMedia(groupId, userId) {
+  const result = await pool.query(
+    `SELECT has_sent_media
+     FROM member_media_activity
+     WHERE group_id = $1 AND user_id = $2
+     LIMIT 1`,
+    [groupId, userId]
+  );
+
+  return result.rows.length > 0;
+}
+
+async function markUserAsMediaSender(groupId, userId) {
+  await pool.query(
+    `INSERT INTO member_media_activity (group_id, user_id, has_sent_media, first_media_at)
+     VALUES ($1, $2, true, NOW())
+     ON CONFLICT (group_id, user_id)
+     DO NOTHING`,
+    [groupId, userId]
+  );
+}
+
+async function isMediaRequirementEnabled(groupId) {
+  const result = await pool.query(
+    `SELECT require_media_before_text
+     FROM settings
+     WHERE group_id = $1
+     LIMIT 1`,
+    [groupId]
+  );
+
+  if (result.rows.length === 0) return false;
+  return Boolean(result.rows[0].require_media_before_text);
+}
+
+async function setMediaRequirement(groupId, enabled) {
+  await pool.query(
+    `INSERT INTO settings (
+      group_id,
+      require_media_before_text,
+      updated_at
+    )
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (group_id)
+     DO UPDATE SET
+       require_media_before_text = EXCLUDED.require_media_before_text,
+       updated_at = NOW()`,
+    [groupId, enabled]
+  );
+}
+
+/* =========================
+   UI ADMIN
+========================= */
+
 function mainAdminKeyboard() {
   return Markup.inlineKeyboard([
     [
@@ -186,6 +253,13 @@ function mainAdminKeyboard() {
     ],
     [
       Markup.button.callback("⚙️ Statut auto-message", "admin_automsg_status")
+    ],
+    [
+      Markup.button.callback("🖼️ Règle média ON", "admin_media_rule_on"),
+      Markup.button.callback("🚫 Règle média OFF", "admin_media_rule_off")
+    ],
+    [
+      Markup.button.callback("📊 Statut règle média", "admin_media_rule_status")
     ]
   ]);
 }
@@ -197,7 +271,7 @@ async function showAdminHome(ctx, extraText = "") {
     "• mots interdits\n" +
     "• broadcast\n" +
     "• message automatique\n" +
-    "• actions rapides\n" +
+    "• règle média avant texte\n" +
     "╰────────────────────╯\n\n" +
     (extraText || "Choisis une action :");
 
@@ -208,7 +282,9 @@ async function showAdminHome(ctx, extraText = "") {
   return ctx.reply(text, mainAdminKeyboard());
 }
 
-/* START */
+/* =========================
+   START
+========================= */
 
 bot.start(async (ctx) => {
   try {
@@ -221,6 +297,7 @@ bot.start(async (ctx) => {
         "• les mots interdits\n" +
         "• les liens\n" +
         "• les tags de bots\n" +
+        "• les textes sans participation média\n" +
         "╰────────────────────╯\n\n" +
         "Les fonctions d'administration sont réservées aux admins autorisés."
       );
@@ -233,7 +310,9 @@ bot.start(async (ctx) => {
   }
 });
 
-/* MENU ADMIN */
+/* =========================
+   MENU ADMIN
+========================= */
 
 bot.action("admin_words", async (ctx) => {
   try {
@@ -352,7 +431,62 @@ bot.action("admin_automsg_status", async (ctx) => {
   }
 });
 
-/* GESTION TEXTE PRIVE ADMIN */
+bot.action("admin_media_rule_on", async (ctx) => {
+  try {
+    if (!isAdminUser(ctx.from.id)) return ctx.answerCbQuery("Accès refusé");
+
+    await setMediaRequirement(GROUP_ID, true);
+    await ctx.answerCbQuery("Règle activée");
+
+    return showAdminHome(
+      ctx,
+      "La règle média avant texte est maintenant activée."
+    );
+  } catch (e) {
+    console.error("admin_media_rule_on error:", e.message);
+    return ctx.answerCbQuery("Erreur");
+  }
+});
+
+bot.action("admin_media_rule_off", async (ctx) => {
+  try {
+    if (!isAdminUser(ctx.from.id)) return ctx.answerCbQuery("Accès refusé");
+
+    await setMediaRequirement(GROUP_ID, false);
+    await ctx.answerCbQuery("Règle désactivée");
+
+    return showAdminHome(
+      ctx,
+      "La règle média avant texte est maintenant désactivée."
+    );
+  } catch (e) {
+    console.error("admin_media_rule_off error:", e.message);
+    return ctx.answerCbQuery("Erreur");
+  }
+});
+
+bot.action("admin_media_rule_status", async (ctx) => {
+  try {
+    if (!isAdminUser(ctx.from.id)) return ctx.answerCbQuery("Accès refusé");
+
+    const enabled = await isMediaRequirementEnabled(GROUP_ID);
+
+    await ctx.answerCbQuery();
+    return showAdminHome(
+      ctx,
+      enabled
+        ? "La règle média avant texte est active."
+        : "La règle média avant texte est désactivée."
+    );
+  } catch (e) {
+    console.error("admin_media_rule_status error:", e.message);
+    return ctx.answerCbQuery("Erreur");
+  }
+});
+
+/* =========================
+   GESTION TEXTE PRIVE ADMIN
+========================= */
 
 bot.on("message", async (ctx, next) => {
   try {
@@ -431,7 +565,25 @@ bot.on("message", async (ctx, next) => {
   }
 });
 
-/* MODERATION GROUPE */
+/* =========================
+   ENREGISTRER MEDIA
+========================= */
+
+bot.on(["photo", "video"], async (ctx) => {
+  try {
+    if (ctx.chat.type === "private") return;
+    if (String(ctx.chat.id) !== GROUP_ID) return;
+
+    await markUserAsMediaSender(ctx.chat.id, ctx.from.id);
+    console.log(`Media enregistré pour user ${ctx.from.id}`);
+  } catch (e) {
+    console.error("media handler error:", e.message);
+  }
+});
+
+/* =========================
+   MODERATION GROUPE
+========================= */
 
 bot.on("text", async (ctx) => {
   try {
@@ -444,6 +596,31 @@ bot.on("text", async (ctx) => {
 
     if (String(ctx.chat.id) !== GROUP_ID) {
       return;
+    }
+
+    const mediaRequirementEnabled = await isMediaRequirementEnabled(ctx.chat.id);
+
+    if (mediaRequirementEnabled && !isAdminUser(ctx.from.id)) {
+      const alreadySentMedia = await hasUserSentMedia(ctx.chat.id, userId);
+
+      if (!alreadySentMedia) {
+        await deleteMessageSilently(ctx);
+        await restrictUserSilently(ctx, userId, 3 * 60);
+
+        const warning = await ctx.reply(
+          "Veuillez envoyer un média avant de faire une demande ou un commentaire. Cela participe à l'enrichissement du groupe."
+        );
+
+        setTimeout(async () => {
+          try {
+            await ctx.telegram.deleteMessage(ctx.chat.id, warning.message_id);
+          } catch (e) {
+            console.error("warning delete failed:", e.message);
+          }
+        }, 30000);
+
+        return;
+      }
     }
 
     if (containsRestrictedLink(text)) {
