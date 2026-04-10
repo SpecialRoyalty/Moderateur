@@ -41,7 +41,3 @@ CREATE TABLE IF NOT EXISTS broadcast_logs (
     message TEXT NOT NULL,
     sent_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
-
-INSERT INTO settings (group_id, auto_message, auto_message_enabled, auto_message_interval_minutes)
-VALUES (-1001234567890, 'Partagez vos vidéos', false, 30)
-ON CONFLICT (group_id) DO NOTHING;
